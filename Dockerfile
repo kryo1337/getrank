@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y \
     libharfbuzz-bin \
     ca-certificates \
     fonts-freefont-ttf \
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create a non-root user to run the app
 RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
@@ -25,13 +26,10 @@ RUN bun install
 
 COPY . .
 
-RUN bun run build
+# RUN bun run build
 
 # Transfer ownership of the application directory to the non-root user
 RUN chown -R pptruser:pptruser /app
-
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 EXPOSE 3000
 

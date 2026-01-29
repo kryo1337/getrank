@@ -29,6 +29,8 @@ async function getCluster(): Promise<Cluster> {
     puppeteerOptions: {
       headless: true,
       args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
         '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',

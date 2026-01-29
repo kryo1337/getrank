@@ -1,9 +1,13 @@
-import type { PlayerStats, Region } from '../types';
+import type { PlayerStats, Region } from '../types/index.js';
 import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer-extra';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { Cluster } from 'puppeteer-cluster';
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 puppeteer.use(StealthPlugin());
 
 const ACT_ID = process.env.VALORANT_ACT_ID || '4c4b8cff-43eb-13d3-8f14-96b783c90cd2'; // Fallback to V25: ACT VI if env not set

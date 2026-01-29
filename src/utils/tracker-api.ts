@@ -1,4 +1,4 @@
-import type { PlayerStats } from '../types';
+import type { PlayerStats } from '../types/index.js';
 
 const API_KEY = process.env.TRN_API_KEY;
 const BASE_URL = 'https://public-api.tracker.gg/v2/valorant/standard';

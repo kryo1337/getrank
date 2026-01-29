@@ -1,8 +1,8 @@
-import { getLeaderboardPage, getPlayerStats, REGION_MAP } from '../src/utils/scraper';
-import { getPlayerStatsAPI } from '../src/utils/tracker-api';
-import { playerCache } from '../src/utils/cache';
-import { isRateLimited } from '../src/utils/ip-limiter';
-import type { LookupRequest, LookupResponse, PlayerStats } from '../src/types';
+import { getLeaderboardPage, getPlayerStats, REGION_MAP } from '../src/utils/scraper.js';
+import { getPlayerStatsAPI } from '../src/utils/tracker-api.js';
+import { playerCache } from '../src/utils/cache.js';
+import { isRateLimited } from '../src/utils/ip-limiter.js';
+import type { LookupRequest, LookupResponse, PlayerStats } from '../src/types/index.js';
 
 export const config = {
   runtime: 'nodejs',

@@ -17,8 +17,15 @@ function App() {
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/leaderboard-lookup`, {
+      let apiUrl = import.meta.env.VITE_API_URL || '';
+      if (apiUrl.endsWith('/')) {
+        apiUrl = apiUrl.slice(0, -1);
+      }
+      
+      const fullUrl = `${apiUrl}/api/leaderboard-lookup`;
+      console.log(`[DEBUG] Fetching: ${fullUrl}`);
+
+      const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -30,6 +37,7 @@ function App() {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        console.error(`[DEBUG] API Error: ${response.status} ${response.statusText}`);
         throw new Error(`Error: ${response.status} ${response.statusText}`);
       }
 

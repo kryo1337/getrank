@@ -22,22 +22,28 @@ serve({
   port: 3000,
   async fetch(req) {
     const url = new URL(req.url);
+    const pathname = url.pathname.replace(/\/$/, "");
 
     // API Routes
-    if (url.pathname === "/api/leaderboard-lookup") {
-      const response = await handler(req);
-      return addHeaders(response);
+    if (pathname === "/api/leaderboard-lookup") {
+      try {
+        const response = await handler(req);
+        return addHeaders(response);
+      } catch (e) {
+        console.error("Handler error:", e);
+        return addHeaders(new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500 }));
+      }
     }
 
     // Serve static frontend files (after build)
     const distDir = path.resolve("dist");
-    
+
     let requestedPath = path.join(distDir, url.pathname === "/" ? "index.html" : url.pathname);
     requestedPath = path.resolve(requestedPath);
 
     // Security Check: Ensure path is within distDir
     if (!requestedPath.startsWith(distDir)) {
-       return addHeaders(new Response("403 Forbidden", { status: 403 }));
+      return addHeaders(new Response("403 Forbidden", { status: 403 }));
     }
 
     const file = Bun.file(requestedPath);

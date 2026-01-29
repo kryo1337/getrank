@@ -9,8 +9,10 @@ export const config = {
   maxDuration: 60,
 };
 
+const allowedOrigin = (process.env.ALLOWED_ORIGIN || '*').replace(/\/$/, "");
+
 const corsHeaders = {
-  'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
+  'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };

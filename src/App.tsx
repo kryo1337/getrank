@@ -23,8 +23,7 @@ function App() {
       }
       
       const fullUrl = `${apiUrl}/api/leaderboard-lookup`;
-      console.log(`[DEBUG] Fetching: ${fullUrl}`);
-
+      
       const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
@@ -37,7 +36,6 @@ function App() {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.error(`[DEBUG] API Error: ${response.status} ${response.statusText}`);
         throw new Error(`Error: ${response.status} ${response.statusText}`);
       }
 

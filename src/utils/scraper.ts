@@ -32,6 +32,7 @@ async function getCluster(): Promise<Cluster> {
     puppeteer: puppeteer,
     puppeteerOptions: {
       headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -42,10 +43,12 @@ async function getCluster(): Promise<Cluster> {
         '--no-zygote',
         '--disable-gpu',
         '--window-size=1920,1080',
+        '--ignore-certificate-errors'
       ]
     }
   });
 
+  console.log('[SCRAPER] Cluster launched successfully');
   return clusterPromise;
 }
 
@@ -85,19 +88,25 @@ async function fetchHtmlWithPuppeteer(url: string): Promise<string> {
       });
 
       try {
+        console.log(`[SCRAPER] Navigating to: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         const title = await page.title();
+        console.log(`[SCRAPER] Page title: ${title}`);
+
         if (title.includes("Just a moment") || title.includes("Security Challenge")) {
+             console.log('[SCRAPER] Cloudflare challenge detected, waiting...');
              await new Promise(r => setTimeout(r, 5000));
         }
 
         try {
           await page.waitForSelector('.giant-stats, .rating-entry__rank-info, .stat', { timeout: 5000 });
         } catch {
+           console.log('[SCRAPER] Selector wait timeout (might be ok if page structure differs)');
         }
       } catch (e) {
-          console.error('Page navigation error:', e);
+          console.error('[SCRAPER] Page navigation error:', e);
+          throw e; // Re-throw to ensure the task fails visibly
       }
 
       return await page.content();

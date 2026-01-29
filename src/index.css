@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-tui-bg text-tui-fg min-h-screen font-mono antialiased selection:bg-tui-blue selection:text-tui-bg;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-tui-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-tui-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-tui-fg-dim;
+}
+
+/* TUI Utilities */
+@layer components {
+  .tui-panel {
+    @apply border border-tui-border relative p-6 bg-tui-bg/50;
+  }
+
+  .tui-panel-title {
+    @apply absolute -top-3 left-4 bg-tui-bg px-2 text-tui-blue font-bold text-sm tracking-wide;
+  }
+
+  .tui-input-group {
+    @apply relative flex items-center border-b border-tui-border focus-within:border-tui-blue transition-colors;
+  }
+
+  .tui-input {
+    @apply w-full bg-transparent text-tui-fg placeholder-tui-fg-dim focus:outline-none py-2 px-2 font-mono;
+  }
+
+  .tui-btn {
+    @apply px-4 py-2 border border-tui-border text-tui-fg hover:border-tui-blue hover:text-tui-blue hover:shadow-glow transition-all active:scale-95 text-sm uppercase font-bold tracking-wider;
+  }
+
+  .tui-btn-primary {
+    @apply bg-tui-blue/10 border-tui-blue text-tui-blue hover:bg-tui-blue/20;
+  }
+  
+  .tui-progress-bg {
+    @apply w-full h-2 bg-tui-border/30 rounded-full overflow-hidden;
+  }
+  
+  .tui-progress-bar {
+    @apply h-full bg-tui-blue rounded-full;
+  }
+}

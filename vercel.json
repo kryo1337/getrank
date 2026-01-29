@@ -1,0 +1,17 @@
+{
+  "buildCommand": "bun run build",
+  "devCommand": "bun run dev",
+  "installCommand": "bun install",
+  "framework": "vite",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/leaderboard-lookup",
+      "destination": "/api/leaderboard-lookup"
+    },
+    {
+      "source": "/((?!assets/|favicon.ico|api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

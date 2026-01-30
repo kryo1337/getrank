@@ -41,8 +41,8 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
       <div className="block md:hidden space-y-4">
         {results.map((player, index) => {
            const isError = !!player.error;
-           const kd = parseFloat(player.kd);
-           const wr = parseFloat(player.wr.replace('%', ''));
+           const kd = parseFloat(player.kd ?? '0');
+           const wr = parseFloat((player.wr ?? '0').replace('%', ''));
            const kdVal = isNaN(kd) ? 0 : kd;
            const wrVal = isNaN(wr) ? 0 : wr;
            
@@ -132,8 +132,8 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
           <tbody className="divide-y divide-tui-border/30">
             {results.map((player, index) => {
               const isError = !!player.error;
-              const kd = parseFloat(player.kd);
-              const wr = parseFloat(player.wr.replace('%', ''));
+              const kd = parseFloat(player.kd ?? '0');
+              const wr = parseFloat((player.wr ?? '0').replace('%', ''));
               const kdVal = isNaN(kd) ? 0 : kd;
               const wrVal = isNaN(wr) ? 0 : wr;
               

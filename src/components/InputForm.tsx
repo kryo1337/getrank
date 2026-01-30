@@ -15,7 +15,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading }) => 
     if (!input.trim()) return;
 
     const ranks = input
-      .split(/[\s,]+/)
+      .split(/[,\n\r]+/)
       .map(r => r.trim())
       .filter(r => r.length > 0);
 

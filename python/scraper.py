@@ -1,12 +1,13 @@
 import sys
 import json
+import urllib.parse
 from curl_cffi import requests
 
 API_BASE_URL = "https://api.tracker.gg/api/v2/valorant/standard/profile/riot/"
 
 
 def get_player_stats(handle: str):
-    url = f"{API_BASE_URL}{handle.replace('#', '%23')}"
+    url = f"{API_BASE_URL}{urllib.parse.quote(handle)}"
     headers = {
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://tracker.gg/",
@@ -15,10 +16,15 @@ def get_player_stats(handle: str):
 
     try:
         resp = requests.get(url, headers=headers, impersonate="chrome110", timeout=10)
+        if resp.status_code == 404:
+            return {"error": "Player not found"}
         if resp.status_code != 200:
             return {"error": f"HTTP {resp.status_code}"}
 
         data = resp.json().get("data", {})
+        if not data:
+            return {"error": "Private Profile or No Data"}
+
         segments = data.get("segments", [])
 
         comp = next((s for s in segments if s.get("type") == "season"), None)
@@ -46,7 +52,7 @@ def get_player_stats(handle: str):
             "wr": f"{(stats.get('matchesWinPct') or {}).get('value', 0):.1f}%",
             "wins": int((stats.get("matchesWon") or {}).get("value", 0)),
             "games_played": int((stats.get("matchesPlayed") or {}).get("value", 0)),
-            "tracker_url": f"https://tracker.gg/valorant/profile/riot/{handle.replace('#', '%23')}/overview",
+            "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
         }
     except Exception:
         return {"error": "Request failed"}

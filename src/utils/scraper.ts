@@ -65,7 +65,7 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGUSR2', gracefulShutdown);
 
-async function fetchHtmlWithPuppeteer(url: string): Promise<{ html: string; initialState: any }> {
+async function fetchHtmlWithPuppeteer(url: string): Promise<{ html: string; initialState: any; isPrivate?: boolean; isNotFound?: boolean }> {
   const cluster = await getCluster();
 
   // @ts-ignore
@@ -120,6 +120,23 @@ async function fetchHtmlWithPuppeteer(url: string): Promise<{ html: string; init
         } catch {
           // Proceed anyway
         }
+      }
+
+      const isPrivate = await page.evaluate(() => {
+        return !!document.querySelector('.private-profile, .profile-private, [src*="private"]');
+      });
+
+      if (isPrivate) {
+        return { html: '', initialState: null, isPrivate: true };
+      }
+
+      const isNotFound = await page.evaluate(() => {
+        const content = document.body.innerText;
+        return content.includes("Player not found") || (content.includes("404") && !document.querySelector('.profile-header, .giant-stats, .rating-entry__rank-info'));
+      });
+
+      if (isNotFound) {
+        return { html: '', initialState: null, isNotFound: true };
       }
 
       try {
@@ -232,6 +249,10 @@ async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerSt
 
     const data = JSON.parse(output.trim());
 
+    if (data && data.error) {
+      return { error: data.error };
+    }
+
     if (data && !data.error) {
       console.log(`[PYTHON SCRAPER] Success for ${riotId}`);
       return data;
@@ -255,7 +276,12 @@ export async function getPlayerStats(riotId: string): Promise<Partial<PlayerStat
   const profileUrl = `https://tracker.gg/valorant/profile/riot/${encodedId}/overview`;
 
   try {
-    const { html, initialState } = await fetchHtmlWithPuppeteer(profileUrl);
+    const result = await fetchHtmlWithPuppeteer(profileUrl);
+    
+    if (result.isPrivate) return { error: 'Private Profile' };
+    if (result.isNotFound) return { error: 'Player not found' };
+
+    const { html, initialState } = result;
 
     if (initialState) {
       const profiles = initialState?.stats?.standardProfiles;
@@ -390,6 +416,6 @@ export async function getPlayerStats(riotId: string): Promise<Partial<PlayerStat
 
   } catch (e) {
     console.error(`Scraping failed for ${riotId}`, e);
-    return null;
+    return { error: 'Scraping failed or profile private' };
   }
 }

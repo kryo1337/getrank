@@ -7,12 +7,19 @@ RUN apt-get update && apt-get install -y \
     chromium \
     python3 \
     python3-pip \
+    libcurl4 \
     libnss3 \
-    libfreetype6 \
-    libfreetype6-dev \
-    libharfbuzz-bin \
-    ca-certificates \
-    fonts-freefont-ttf \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpangocairo-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY python/requirements.txt ./python/requirements.txt

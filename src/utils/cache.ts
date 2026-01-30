@@ -19,7 +19,7 @@ export class InMemoryCache implements CacheStore {
   private maxSize: number;
   private cleanupInterval: ReturnType<typeof setInterval>;
 
-  constructor(ttlMs: number = 10800000, maxSize: number = 10000) { // Default 3 hours, 10k items
+  constructor(ttlMs: number = 21600000, maxSize: number = 10000) { // Default 6 hours, 10k items
     this.cache = new Map();
     this.ttl = ttlMs;
     this.maxSize = maxSize;
@@ -86,7 +86,7 @@ export class RedisCache implements CacheStore {
   private client: Redis;
   private ttlSeconds: number;
 
-  constructor(redisUrl: string, ttlMs: number = 10800000) {
+  constructor(redisUrl: string, ttlMs: number = 21600000) {
     this.client = new Redis(redisUrl);
     this.ttlSeconds = Math.floor(ttlMs / 1000);
     

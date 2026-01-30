@@ -2,9 +2,11 @@ FROM oven/bun:1
 
 WORKDIR /app
 
-# Install dependencies needed for Puppeteer
+# Install dependencies needed for Puppeteer and Python scraper
 RUN apt-get update && apt-get install -y \
     chromium \
+    python3 \
+    python3-pip \
     libnss3 \
     libfreetype6 \
     libfreetype6-dev \
@@ -12,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/*
+
+COPY python/requirements.txt ./python/requirements.txt
+RUN pip3 install -r ./python/requirements.txt --break-system-packages
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium

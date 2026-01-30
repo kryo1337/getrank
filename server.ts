@@ -18,16 +18,18 @@ function addHeaders(response: Response): Response {
 }
 
 // Bun server
-serve({
+const server = serve({
   port: 3000,
   async fetch(req) {
     const url = new URL(req.url);
     const pathname = url.pathname.replace(/\/$/, "");
 
+    const clientIP = server.requestIP(req)?.address || "unknown";
+
     // API Routes
     if (pathname === "/api/leaderboard-lookup") {
       try {
-        const response = await handler(req);
+        const response = await handler(req, clientIP);
         return addHeaders(response);
       } catch (e) {
         console.error("Handler error:", e);

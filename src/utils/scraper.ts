@@ -67,22 +67,32 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGUSR2', gracefulShutdown);
 
-async function fetchHtmlWithPuppeteer(url: string): Promise<string> {
+async function fetchHtmlWithPuppeteer(url: string): Promise<{ html: string; initialState: any }> {
   const cluster = await getCluster();
   
+  // @ts-ignore
   return cluster.execute(url, async ({ page, data: targetUrl }) => {
       await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        const resourceType = req.resourceType();
-        if (['image', 'media'].includes(resourceType)) {
-          req.abort();
+      page.on('request', (request) => {
+        const resourceType = request.resourceType();
+        const requestUrl = request.url();
+        const blockedDomains = [
+            'doubleclick.net', 
+            'amazon-adsystem.com', 
+            'google-analytics.com',
+            'googletagmanager.com'
+        ];
+        
+        if (['image', 'media'].includes(resourceType) || 
+            blockedDomains.some(domain => requestUrl.includes(domain))) {
+          request.abort();
         } else {
-          req.continue();
+          request.continue();
         }
       });
 
       await page.setViewport({ width: 1920, height: 1080 });
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
       await page.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
       });
@@ -91,84 +101,46 @@ async function fetchHtmlWithPuppeteer(url: string): Promise<string> {
         console.log(`[SCRAPER] Navigating to: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        const title = await page.title();
+        let title = await page.title();
         console.log(`[SCRAPER] Page title: ${title}`);
 
         if (title.includes("Just a moment") || title.includes("Security Challenge")) {
              console.log('[SCRAPER] Cloudflare challenge detected, waiting...');
-             await new Promise(r => setTimeout(r, 5000));
+             try {
+               await page.waitForFunction(() => {
+                 const t = document.title;
+                 return !t.includes("Just a moment") && !t.includes("Security Challenge");
+               }, { timeout: 10000 });
+               title = await page.title();
+               console.log(`[SCRAPER] Title changed to: ${title}`);
+             } catch {
+               console.log('[SCRAPER] Timed out waiting for title change, proceeding...');
+             }
         }
 
         try {
-          await page.waitForSelector('.giant-stats, .rating-entry__rank-info, .stat', { timeout: 5000 });
+          await page.waitForFunction(() => {
+            // @ts-ignore
+            if (window.__INITIAL_STATE__) return true;
+            return document.querySelector('.giant-stats, .rating-entry__rank-info, .stat');
+          }, { timeout: 10000 });
         } catch {
-           console.log('[SCRAPER] Selector wait timeout (might be ok if page structure differs)');
+           console.log('[SCRAPER] Wait timeout (might be ok if page structure differs)');
         }
+
+        const initialState = await page.evaluate(() => {
+            // @ts-ignore
+            return window.__INITIAL_STATE__ || null;
+        });
+
+        const content = await page.content();
+        return { html: content, initialState };
+
       } catch (e) {
           console.error('[SCRAPER] Page navigation error:', e);
           throw e; // Re-throw to ensure the task fails visibly
       }
-
-      return await page.content();
   });
-}
-
-function extractInitialState(html: string): any {
-  const startMarker = 'window.__INITIAL_STATE__ = ';
-  const startIdx = html.indexOf(startMarker);
-  
-  if (startIdx === -1) {
-    return null;
-  }
-  
-  const jsonStart = startIdx + startMarker.length;
-  let braceCount = 0;
-  let inString = false;
-  let escape = false;
-  let jsonEnd = -1;
-  
-  for (let i = jsonStart; i < html.length; i++) {
-    const char = html[i];
-    
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    
-    if (char === '\\') {
-      escape = true;
-      continue;
-    }
-    
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    
-    if (!inString) {
-      if (char === '{') {
-        braceCount++;
-      } else if (char === '}') {
-        braceCount--;
-        if (braceCount === 0) {
-          jsonEnd = i + 1;
-          break;
-        }
-      }
-    }
-  }
-  
-  if (jsonEnd !== -1) {
-    try {
-      const jsonStr = html.substring(jsonStart, jsonEnd);
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error('Failed to parse INITIAL_STATE JSON', e);
-      return null;
-    }
-  }
-  
-  return null;
 }
 
 export async function getLeaderboardPage(page: number, region: Region): Promise<any[] | null> {
@@ -176,9 +148,8 @@ export async function getLeaderboardPage(page: number, region: Region): Promise<
   const url = `https://tracker.gg/valorant/leaderboards/ranked/all/default?platform=pc&region=${regionParam}&act=${ACT_ID}&page=${page}`;
   
   try {
-    const html = await fetchHtmlWithPuppeteer(url);
+    const { html, initialState } = await fetchHtmlWithPuppeteer(url);
     
-    const initialState = extractInitialState(html);
     if (initialState) {
         const leaderboards = initialState?.stats?.standardLeaderboards;
         if (Array.isArray(leaderboards) && leaderboards.length > 0) {
@@ -240,26 +211,79 @@ export async function getPlayerByRank(rank: number, region: Region): Promise<{ r
   return null;
 }
 
+async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerStats> | null> {
+    try {
+        const proc = Bun.spawn(["python3", "python/scraper.py", "--", riotId], {
+            cwd: process.cwd(),
+            stderr: "inherit"
+        });
+        
+        const output = await new Response(proc.stdout).text();
+        const exitCode = await proc.exited;
+        
+        if (exitCode !== 0) {
+            console.error(`[PYTHON SCRAPER] Process failed for ${riotId} with exit code ${exitCode}`);
+            return null;
+        }
+
+        const data = JSON.parse(output.trim());
+        
+        if (data && !data.error) {
+            console.log(`[PYTHON SCRAPER] Success for ${riotId}`);
+            return data;
+        }
+        return null;
+    } catch (e) {
+        console.error(`[PYTHON SCRAPER] Failed for ${riotId}:`, e);
+        return null;
+    }
+}
+
 export async function getPlayerStats(riotId: string): Promise<Partial<PlayerStats> | null> {
+  const pythonStats = await getPlayerStatsViaPython(riotId);
+  if (pythonStats) {
+      return pythonStats;
+  }
+
+  console.log(`[SCRAPER] Python fallback failed/blocked, trying Puppeteer for ${riotId}...`);
+
   const encodedId = encodeURIComponent(riotId);
   const profileUrl = `https://tracker.gg/valorant/profile/riot/${encodedId}/overview`;
   
   try {
-      const html = await fetchHtmlWithPuppeteer(profileUrl);
+      const { html, initialState } = await fetchHtmlWithPuppeteer(profileUrl);
       
-      const initialState = extractInitialState(html);
       if (initialState) {
           const profiles = initialState?.stats?.standardProfiles;
           
-          if (Array.isArray(profiles) && profiles.length > 0) {
-              const profile = profiles[0];
-              const segments = profile.segments || [];
-              
-              let competitiveStats = segments.find((s: any) => s.type === "season");
-              if (!competitiveStats) {
-                   competitiveStats = segments.find((s: any) => s.metadata?.name === 'Competitive') || 
-                                      segments.find((s: any) => s.type === 'playlist' && s.attributes?.playlistId === 'competitive');
-              }
+              if (Array.isArray(profiles) && profiles.length > 0) {
+                  const profile = profiles[0];
+                  const segments = profile.segments || [];
+
+                  let competitiveStats = segments.find((s: any) => s.type === "season" && s.metadata?.isCurrentSeason);
+
+                  if (!competitiveStats) {
+                       competitiveStats = segments.find((s: any) => s.metadata?.name === 'Competitive');
+                       
+                       if (!competitiveStats) {
+                           competitiveStats = segments.find((s: any) => s.attributes?.playlistId === 'competitive');
+                       }
+                       
+                       if (!competitiveStats) {
+                           competitiveStats = segments.find((s: any) => {
+                               const name = s.metadata?.name?.toLowerCase() || '';
+                               return name.includes('competitive') || name.includes('ranked');
+                           });
+                       }
+                       
+                       if (!competitiveStats && segments.length > 0) {
+                            const withRank = segments.find((s: any) => s.stats?.rank?.value !== undefined);
+                            if (withRank) {
+                                console.log(`[SCRAPER] Using fallback segment: ${withRank.metadata?.name || 'Unknown'}`);
+                                competitiveStats = withRank;
+                            }
+                       }
+                  }
               
               if (competitiveStats) {
                    const stats = competitiveStats.stats || {};

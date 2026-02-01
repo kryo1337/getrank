@@ -1,6 +1,9 @@
 import { serve } from "bun";
 import { handler } from "./api/leaderboard-lookup";
 import * as path from "path";
+import { initScraper } from "./src/utils/scraper";
+
+initScraper().catch(e => console.error("Failed to init scraper:", e));
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://tracker.gg;",

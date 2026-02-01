@@ -21,9 +21,9 @@ function App() {
       if (apiUrl.endsWith('/')) {
         apiUrl = apiUrl.slice(0, -1);
       }
-      
+
       const fullUrl = `${apiUrl}/api/leaderboard-lookup`;
-      
+
       const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {

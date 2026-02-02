@@ -86,7 +86,7 @@ function App() {
 
       setResults(allResults);
     } else {
-      setError((data as any).error || 'Failed to fetch data');
+      setError((data as { error?: string }).error || 'Failed to fetch data');
     }
   }
 

@@ -11,22 +11,50 @@ export const REGION_MAP: Record<Region, string> = {
   'latam': 'latam'
 };
 
-function validateRiotId(riotId: string): boolean {
-  const riotIdPattern = /^.+#.+$/;
-  if (!riotIdPattern.test(riotId)) {
-    return false;
+interface SanitizedRiotId {
+  isValid: boolean;
+  sanitized?: string;
+  error?: string;
+}
+
+function sanitizeRiotId(riotId: string): SanitizedRiotId {
+  const str = String(riotId).trim();
+  
+  if (str.length === 0 || str.length > 100) {
+    return { isValid: false, error: 'Riot ID must be 1-100 characters' };
   }
-  const [name, tag] = riotId.split('#');
+  
+  if (!str.includes('#')) {
+    return { isValid: false, error: 'Riot ID must include # separator' };
+  }
+  
+  const parts = str.split('#');
+  if (parts.length !== 2) {
+    return { isValid: false, error: 'Riot ID must have exactly one # separator' };
+  }
+  
+  const [name, tag] = parts;
+  
   if (name.length < 3 || name.length > 20) {
-    return false;
+    return { isValid: false, error: 'Name must be 3-20 characters' };
   }
+  
   if (tag.length < 3 || tag.length > 5) {
-    return false;
+    return { isValid: false, error: 'Tag must be 3-5 characters' };
   }
-  if (riotId.length > 100) {
-    return false;
+  
+  const namePattern = /^[\p{L}\p{N}\s]+$/u;
+  const tagPattern = /^[\p{N}]+$/u;
+  
+  if (!namePattern.test(name)) {
+    return { isValid: false, error: 'Name contains invalid characters' };
   }
-  return true;
+  
+  if (!tagPattern.test(tag)) {
+    return { isValid: false, error: 'Tag must contain only numbers' };
+  }
+  
+  return { isValid: true, sanitized: str };
 }
 
 function validateActId(actId: string): boolean {
@@ -46,8 +74,27 @@ interface LeaderboardItem {
 }
 
 async function getLeaderboardViaPython(region: string, page: number): Promise<LeaderboardItem[] | null> {
+  const allowedRegions = ['na', 'eu', 'ap', 'kr', 'br', 'latam'];
+  const normalizedRegion = region.toLowerCase().trim();
+  
+  if (!allowedRegions.includes(normalizedRegion)) {
+    console.error(`[LEADERBOARD] Invalid region: ${normalizedRegion}`);
+    return null;
+  }
+  
+  if (!Number.isInteger(page) || page < 1 || page > 10000) {
+    console.error(`[LEADERBOARD] Invalid page: ${page}`);
+    return null;
+  }
+
   try {
-    const proc = Bun.spawn(["python3", "python/scraper.py", "leaderboard", region, page.toString(), ACT_ID], {
+    const proc = Bun.spawn([
+      "python3",
+      "python/leaderboard_scraper.py",
+      normalizedRegion,
+      page.toString(),
+      ACT_ID
+    ], {
       cwd: process.cwd(),
       stderr: "inherit"
     });
@@ -72,11 +119,11 @@ async function getLeaderboardViaPython(region: string, page: number): Promise<Le
         }
       }));
     }
-    
+
     if (data && data.error) {
       console.warn(`[LEADERBOARD] Error: ${data.error}`);
     }
-    
+
     return null;
   } catch (e) {
     console.error(`[LEADERBOARD] Failed:`, e);
@@ -87,6 +134,12 @@ async function getLeaderboardViaPython(region: string, page: number): Promise<Le
 export async function getLeaderboardPage(page: number, region: Region): Promise<LeaderboardItem[] | null> {
   const regionParam = REGION_MAP[region];
   console.log(`[LEADERBOARD] Fetching page ${page} for ${region}...`);
+  
+  if (!regionParam) {
+    console.error(`[LEADERBOARD] Invalid region mapping: ${region}`);
+    return null;
+  }
+  
   return await getLeaderboardViaPython(regionParam, page);
 }
 
@@ -107,8 +160,20 @@ export async function getPlayerByRank(rank: number, region: Region): Promise<{ r
 }
 
 async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerStats> | null> {
+  const sanitization = sanitizeRiotId(riotId);
+  if (!sanitization.isValid || !sanitization.sanitized) {
+    return { error: sanitization.error || 'Invalid Riot ID format' };
+  }
+
+  const sanitizedId = sanitization.sanitized;
+  
   try {
-    const proc = Bun.spawn(["python3", "python/scraper.py", "profile", riotId], {
+    const proc = Bun.spawn([
+      "python3", 
+      "python/stats_scraper.py", 
+      "profile", 
+      sanitizedId
+    ], {
       cwd: process.cwd(),
       stderr: "inherit"
     });
@@ -117,7 +182,7 @@ async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerSt
     const exitCode = await proc.exited;
 
     if (exitCode !== 0) {
-      console.error(`[STATS] Process failed for ${riotId} with exit code ${exitCode}`);
+      console.error(`[STATS] Process failed for ${sanitizedId} with exit code ${exitCode}`);
       return null;
     }
 
@@ -128,21 +193,17 @@ async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerSt
     }
 
     if (data && !data.error) {
-      console.log(`[STATS] Success for ${riotId}`);
+      console.log(`[STATS] Success for ${sanitizedId}`);
       return data;
     }
     return null;
   } catch (e) {
-    console.error(`[STATS] Failed for ${riotId}:`, e);
+    console.error(`[STATS] Failed for ${sanitizedId}:`, e);
     return null;
   }
 }
 
 export async function getPlayerStats(riotId: string): Promise<Partial<PlayerStats> | null> {
-  if (!validateRiotId(riotId)) {
-    return { error: 'Invalid Riot ID format' };
-  }
-
   if (!validateActId(ACT_ID)) {
     return { error: 'Invalid Act ID configuration' };
   }

@@ -5,6 +5,7 @@ import re
 import argparse
 from typing import Literal
 from curl_cffi import requests
+from playwright.sync_api import sync_playwright
 
 API_BASE_URL = "https://api.tracker.gg/api/v2/valorant/standard/profile/riot/"
 

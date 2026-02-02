@@ -1,5 +1,6 @@
 import RedisPkg from 'ioredis';
-// @ts-ignore
+
+// @ts-expect-error - ioredis package type definitions
 const Redis = RedisPkg.default || RedisPkg;
 
 interface CacheEntry<T> {
@@ -83,48 +84,93 @@ export class InMemoryCache implements CacheStore {
 }
 
 export class RedisCache implements CacheStore {
-  private client: any;
+  private client: unknown;
   private ttlSeconds: number;
 
   constructor(redisUrl: string, ttlMs: number = 21600000) {
-    // @ts-ignore
-    this.client = new Redis(redisUrl);
+    this.client = new Redis(redisUrl, {
+      connectTimeout: 5000,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null
+    });
     this.ttlSeconds = Math.floor(ttlMs / 1000);
     
+    // @ts-expect-error - ioredis package type definitions
     this.client.on('error', (err: Error) => {
       console.error('Redis Error:', err);
     });
   }
 
+  async isConnected(): Promise<boolean> {
+    try {
+      // @ts-expect-error - ioredis package type definitions
+      await this.client.ping();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async set<T>(key: string, value: T): Promise<void> {
-    const data = JSON.stringify(value);
-    await this.client.set(key, data, 'EX', this.ttlSeconds);
+    try {
+      const data = JSON.stringify(value);
+      // @ts-expect-error - ioredis package type definitions
+      await this.client.set(key, data, 'EX', this.ttlSeconds);
+    } catch (e) {
+      console.error(`Redis set failed for ${key}:`, e);
+    }
   }
 
   async get<T>(key: string): Promise<T | null> {
-    const data = await this.client.get(key);
-    if (!data) return null;
     try {
-      return JSON.parse(data) as T;
+      // @ts-expect-error - ioredis package type definitions
+      const data = await this.client.get(key);
+      if (!data) return null;
+      try {
+        return JSON.parse(data) as T;
+      } catch (e) {
+        console.warn(`Failed to parse cache entry for ${key}`, e);
+        return null;
+      }
     } catch (e) {
-      console.warn(`Failed to parse cache entry for ${key}`, e);
+      console.error(`Redis get failed for ${key}:`, e);
       return null;
     }
   }
 
   async has(key: string): Promise<boolean> {
-    return (await this.client.exists(key)) === 1;
+    try {
+      // @ts-expect-error - ioredis package type definitions
+      return (await this.client.exists(key)) === 1;
+    } catch (e) {
+      console.error(`Redis exists failed for ${key}:`, e);
+      return false;
+    }
   }
 
   destroy(): void {
+    // @ts-expect-error - ioredis package type definitions
     this.client.disconnect();
   }
 }
 
 const createCache = (): CacheStore => {
-  if (process.env.REDIS_URL) {
-    return new RedisCache(process.env.REDIS_URL);
+  const redisUrl = process.env.REDIS_URL || process.env.REDISCLOUD_URL;
+  if (redisUrl) {
+    console.log('[CACHE] Attempting Redis connection...');
+    const cache = new RedisCache(redisUrl);
+    cache.isConnected().then(connected => {
+      if (connected) {
+        console.log('[CACHE] Using Redis');
+      } else {
+        console.warn('[CACHE] Redis connection failed, operations may fail');
+      }
+    }).catch(() => {
+      console.warn('[CACHE] Redis health check failed, operations may fail');
+    });
+    return cache;
   }
+  console.log('[CACHE] Using InMemoryCache');
   return new InMemoryCache();
 };
 

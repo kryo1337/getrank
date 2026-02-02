@@ -1,27 +1,55 @@
+# Frontend files
+src/components/
+src/App.tsx
+src/assets/
+public/
+index.html
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+tsconfig*.json
+eslint.config.js
+vercel.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Dependencies
 node_modules
-dist
-.env
-.env.*
-.git
-.gitignore
-.dockerignore
-.opencode
-README.md
-AGENTS.md
-DEPLOY.md
+
+# Lock files
 bun.lockb
 package-lock.json
 package-lock
-*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Development tools
 .vscode
 .idea
+.DS_Store
+.opencode
+
+# Python cache
 __pycache__/
 *.pyc
 .ruff_cache/
+
+# Vercel artifacts
 .vercel
 .vercel_build_output
+
+# Debug files
 debug_*.html
 profile_debug.html
 api_response.json
 tracker_data.json
+
+# Local files
 *.local

@@ -2,6 +2,32 @@ import { serve } from "bun";
 import { handler as lookupHandler } from "./api/leaderboard-lookup";
 import * as path from "path";
 
+async function warmupBrowser() {
+  console.log("[SERVER] Warming up Playwright browser...");
+  try {
+    const proc = Bun.spawn(["python3", "-c", `
+import asyncio
+import sys
+sys.path.insert(0, 'python')
+from leaderboard_scraper import warmup
+asyncio.run(warmup())
+`], {
+      cwd: process.cwd(),
+      stderr: "inherit"
+    });
+
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      console.warn("[SERVER] Browser warmup failed, will initialize on first request");
+    } else {
+      console.log("[SERVER] Browser warmup completed");
+    }
+  } catch (e) {
+    console.warn("[SERVER] Browser warmup failed, will initialize on first request:", e);
+  }
+}
+
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://tracker.gg; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   "X-Frame-Options": "DENY",
@@ -20,7 +46,13 @@ function addHeaders(response: Response): Response {
 
 const server = serve({
   port: 3000,
+  maxRequestBodySize: 1024 * 1024,
   async fetch(req) {
+    const contentLength = req.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > 1024 * 1024) {
+      return addHeaders(new Response('Payload too large', { status: 413 }));
+    }
+    
     const url = new URL(req.url);
     const pathname = url.pathname.replace(/\/$/, "");
 
@@ -60,3 +92,4 @@ const server = serve({
 });
 
 console.log("Server running on http://localhost:3000");
+warmupBrowser();

@@ -5,15 +5,9 @@ interface ResultsTableProps {
   results: PlayerStats[];
 }
 
-function isValidTrackerUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname === 'tracker.gg' &&
-           parsed.protocol === 'https:' &&
-           parsed.pathname.startsWith('/valorant/profile/');
-  } catch {
-    return false;
-  }
+function buildTrackerUrl(riotId: string): string {
+  const sanitizedId = encodeURIComponent(riotId);
+  return `https://tracker.gg/valorant/profile/riot/${sanitizedId}/overview`;
 }
 
 const getRankColorClasses = (rankStr: string) => {
@@ -35,12 +29,6 @@ const getStatColors = (value: number, threshold: number) => {
   if (Math.abs(value - threshold) < epsilon) return { bg: 'bg-tui-orange', text: 'text-tui-orange' };
   if (value > threshold) return { bg: 'bg-tui-green', text: 'text-tui-green' };
   return { bg: 'bg-tui-red', text: 'text-tui-red' };
-};
-
-const sanitize = (str: string | number | undefined | null): string => {
-  if (str === null || str === undefined) return '';
-  const s = String(str);
-  return s.replace(/[<>]/g, '');
 };
 
 export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
@@ -68,33 +56,33 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
                  isError ? 'border-tui-red/50 bg-tui-red/5' : ''
                }`}
              >
-               <div className="flex justify-between items-start">
-                 <div>
-                   <span className="text-xs text-tui-fg-dim uppercase block">Rank / Input</span>
-                   <span className="font-bold text-tui-fg">{sanitize(player.rank_input)}</span>
-                 </div>
-                  {!isError && isValidTrackerUrl(player.tracker_url) && (
-                     <a
-                       href={player.tracker_url}
-                       target="_blank"
-                       rel="noreferrer"
-                       className="text-xs text-tui-blue border border-tui-blue px-3 py-2 rounded uppercase hover:bg-tui-blue hover:text-white transition-colors"
-                     >
-                       View Profile
-                     </a>
-                  )}
-               </div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-xs text-tui-fg-dim uppercase block">Rank / Input</span>
+                    <span className="font-bold text-tui-fg">{player.rank_input}</span>
+                  </div>
+                   {!isError && (
+                      <a
+                        href={buildTrackerUrl(player.riot_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-tui-blue border border-tui-blue px-3 py-2 rounded uppercase hover:bg-tui-blue hover:text-white transition-colors"
+                      >
+                        View Profile
+                      </a>
+                   )}
+                </div>
 
-               {isError ? (
-                 <div className="text-tui-red italic text-sm">
-                   Error: {sanitize(player.error)}
-                 </div>
-               ) : (
-                 <>
-                   <div>
-                     <span className="text-xs text-tui-fg-dim uppercase block">Riot ID</span>
-                     <span className="font-bold text-lg text-tui-fg break-all">{sanitize(player.riot_id)}</span>
-                   </div>
+                {isError ? (
+                  <div className="text-tui-red italic text-sm">
+                    Error: {player.error}
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-xs text-tui-fg-dim uppercase block">Riot ID</span>
+                      <span className="font-bold text-lg text-tui-fg break-all">{player.riot_id}</span>
+                    </div>
                    
                    <div className="grid grid-cols-2 gap-4">
                      <div>
@@ -153,37 +141,33 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
               const uniqueKey = `${player.riot_id}-${player.rank_input}-${player.cached ? 'cached' : 'fresh'}-${index}`;
               
                 return (
-                  <tr 
+                  <tr
                     key={uniqueKey}
                     className={`transition-colors hover:bg-tui-blue/5 ${
                       isError ? 'bg-tui-red/5' : ''
                     }`}
                   >
-                    <td className="p-3 text-tui-fg-dim font-bold whitespace-nowrap">{sanitize(player.rank_input)}</td>
+                    <td className="p-3 text-tui-fg-dim font-bold whitespace-nowrap">{player.rank_input}</td>
                     
                     {isError ? (
                       <td colSpan={6} className="p-3 text-tui-red italic">
-                        Error: {sanitize(player.error)}
+                        Error: {player.error}
                       </td>
                     ) : (
                       <>
                         <td className="p-3 font-bold text-tui-fg whitespace-nowrap">
-                          {isValidTrackerUrl(player.tracker_url) ? (
-                            <a 
-                              href={player.tracker_url} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="hover:text-tui-blue hover:underline decoration-1 underline-offset-4"
-                            >
-                              {sanitize(player.riot_id)}
-                            </a>
-                          ) : (
-                            <span>{sanitize(player.riot_id)}</span>
-                          )}
+                          <a
+                            href={buildTrackerUrl(player.riot_id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-tui-blue hover:underline decoration-1 underline-offset-4"
+                          >
+                            {player.riot_id}
+                          </a>
                         </td>
                       <td className="p-3 whitespace-nowrap">
                         <span className={`font-bold uppercase ${getRankColorClasses(player.current_rank)}`}>
-                          {player.current_rank}
+                           {player.current_rank}
                         </span>
                       </td>
                       <td className="p-3 whitespace-nowrap">
@@ -194,18 +178,14 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
                       </td>
                       <td className="p-3 text-tui-fg-dim whitespace-nowrap">{player.games_played}</td>
                       <td className="p-3 text-right whitespace-nowrap">
-                        {isValidTrackerUrl(player.tracker_url) ? (
-                          <a
-                            href={player.tracker_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs text-tui-blue hover:text-white hover:bg-tui-blue px-2 py-1 transition-colors"
-                          >
-                            [ VIEW ]
-                          </a>
-                        ) : (
-                          <span className="text-xs text-tui-fg-dim">N/A</span>
-                        )}
+                        <a
+                          href={buildTrackerUrl(player.riot_id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-tui-blue hover:text-white hover:bg-tui-blue px-2 py-1 transition-colors"
+                        >
+                          [ VIEW ]
+                        </a>
                       </td>
                     </>
                   )}

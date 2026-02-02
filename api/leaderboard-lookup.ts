@@ -1,6 +1,6 @@
 import { getLeaderboardPage, getPlayerStats, REGION_MAP } from '../src/utils/scraper.js';
 import { playerCache } from '../src/utils/cache.js';
-import { isRateLimited } from '../src/utils/ip-limiter.js';
+import { isRateLimited, getRateLimitHeaders } from '../src/utils/ip-limiter.js';
 import type { LookupRequest, LookupResponse, PlayerStats } from '../src/types/index.js';
 
 export const config = {
@@ -36,23 +36,36 @@ const PUBLIC_ERROR_MESSAGES: Record<string, string> = {
   [ERROR_CODES.INVALID_RIOT_ID]: 'Invalid Riot ID format'
 };
 
-function createErrorResponse(errorCode: string, status: number = 400): Response {
+function createErrorResponse(errorCode: string, status: number = 400, includeCode: boolean = false): Response {
+  const isProduction = process.env.NODE_ENV === 'production';
   const message = PUBLIC_ERROR_MESSAGES[errorCode] || PUBLIC_ERROR_MESSAGES[ERROR_CODES.INTERNAL_ERROR];
-  return new Response(JSON.stringify({ success: false, error: message, code: errorCode }), {
+  
+  const body: Record<string, unknown> = { 
+    success: false, 
+    error: message 
+  };
+  
+  if (includeCode || !isProduction) {
+    body.code = errorCode;
+  }
+  
+  return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
 }
 
 function logError(level: 'error' | 'warn' | 'info', message: string, data?: unknown): void {
+  const isProduction = process.env.NODE_ENV === 'production';
   const logEntry = {
     timestamp: new Date().toISOString(),
     level,
     message,
-    ...(data ? { data } : {})
+    ...(data ? { data } : {}),
+    ...(isProduction ? {} : { stack: new Error().stack })
   };
 
-  if (process.env.NODE_ENV !== 'production' || level === 'error') {
+  if (!isProduction || level === 'error') {
     console[level](JSON.stringify(logEntry));
   }
 }
@@ -61,6 +74,33 @@ function isValidIP(ip: string): boolean {
   const ipv4Pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
   const ipv6Pattern = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
   return ipv4Pattern.test(ip) || ipv6Pattern.test(ip);
+}
+
+function validateInputSize(body: LookupRequest): { valid: boolean; error?: string } {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, error: 'Invalid request body' };
+  }
+  
+  if (!body.region || typeof body.region !== 'string' || body.region.length > 10) {
+    return { valid: false, error: 'Invalid region' };
+  }
+  
+  if (!body.ranks || !Array.isArray(body.ranks)) {
+    return { valid: false, error: 'Invalid ranks format' };
+  }
+  
+  if (body.ranks.length > 10) {
+    return { valid: false, error: 'Maximum 10 ranks allowed' };
+  }
+  
+  for (const rank of body.ranks) {
+    const str = String(rank);
+    if (str.length > 100) {
+      return { valid: false, error: 'Rank input too long (max 100 characters)' };
+    }
+  }
+  
+  return { valid: true };
 }
 
 function getTrustedClientIP(directIP: string | undefined, headers: Headers): string {
@@ -100,12 +140,33 @@ export async function handler(request: Request, clientIP?: string) {
 
   const ip = getTrustedClientIP(directIP, request.headers);
 
-  if (isRateLimited(ip)) {
-    return createErrorResponse(ERROR_CODES.RATE_LIMITED, 429);
+  const rateLimitResult = await isRateLimited(ip);
+  if (rateLimitResult.limited) {
+    const rateLimitHeaders = await getRateLimitHeaders(ip);
+    return new Response(JSON.stringify({ success: false, error: PUBLIC_ERROR_MESSAGES[ERROR_CODES.RATE_LIMITED], code: ERROR_CODES.RATE_LIMITED }), {
+      status: 429,
+      headers: { 
+        'Content-Type': 'application/json',
+        ...corsHeaders,
+        ...rateLimitHeaders
+      }
+    });
   }
 
   try {
     const body: LookupRequest = await request.json();
+    
+    const sizeValidation = validateInputSize(body);
+    if (!sizeValidation.valid) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: sizeValidation.error 
+      }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
     const { ranks, region } = body;
 
     if (!region || !REGION_MAP[region]) {
@@ -279,16 +340,25 @@ export async function handler(request: Request, clientIP?: string) {
       errors: errors
     };
 
+    const rateLimitHeaders = await getRateLimitHeaders(ip);
+    
     return new Response(JSON.stringify(response), {
       headers: { 
         'Content-Type': 'application/json',
-        ...corsHeaders 
+        ...corsHeaders,
+        ...rateLimitHeaders
       }
     });
 
   } catch (e) {
     logError('error', 'Handler error', { error: e instanceof Error ? e.message : String(e) });
-    return new Response(JSON.stringify({ success: false, code: ERROR_CODES.INTERNAL_ERROR }), {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: PUBLIC_ERROR_MESSAGES[ERROR_CODES.INTERNAL_ERROR],
+      ...(isProduction ? {} : { code: ERROR_CODES.INTERNAL_ERROR })
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });

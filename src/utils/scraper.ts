@@ -44,14 +44,14 @@ function sanitizeRiotId(riotId: string): SanitizedRiotId {
   }
   
   const namePattern = /^[\p{L}\p{N}\s]+$/u;
-  const tagPattern = /^[\p{N}]+$/u;
+  const tagPattern = /^[\p{L}\p{N}]+$/u;
   
   if (!namePattern.test(name)) {
     return { isValid: false, error: 'Name contains invalid characters' };
   }
   
   if (!tagPattern.test(tag)) {
-    return { isValid: false, error: 'Tag must contain only numbers' };
+    return { isValid: false, error: 'Tag must contain only letters and numbers' };
   }
   
   return { isValid: true, sanitized: str };

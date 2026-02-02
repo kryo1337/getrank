@@ -128,6 +128,7 @@ def get_leaderboard(region: str, page: int, act_id: str):
         resp = requests.get(url, headers=headers, impersonate="chrome120", timeout=15)
 
         if resp.status_code != 200:
+            print(f"[DEBUG] Status: {resp.status_code}, URL: {url}", file=sys.stderr)
             return {"error": "Failed to fetch leaderboard"}
 
         html = resp.text

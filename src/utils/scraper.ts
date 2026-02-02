@@ -62,7 +62,27 @@ async function getCluster(): Promise<Cluster> {
 }
 
 export async function initScraper() {
-  await getCluster();
+  const cluster = await getCluster();
+  console.log('[SCRAPER] Warming up browser...');
+  
+  try {
+    await cluster.execute('https://tracker.gg/valorant', async ({ page, data: url }) => {
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        if (['image', 'media', 'font'].includes(req.resourceType())) req.abort();
+        else req.continue();
+      });
+      
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        console.log('[SCRAPER] Browser warmup complete');
+      } catch (e) {
+        console.warn('[SCRAPER] Warmup navigation failed (non-fatal):', e);
+      }
+    });
+  } catch (e) {
+    console.error('[SCRAPER] Warmup failed:', e);
+  }
 }
 
 const gracefulShutdown = async () => {

@@ -14,7 +14,7 @@ function App() {
     setResults([]);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -76,7 +76,7 @@ function App() {
       clearTimeout(timeoutId);
       console.error(err);
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Request timed out after 30 seconds');
+        setError('Request timed out after 60 seconds');
       } else {
         setError(err instanceof Error ? err.message : 'An unknown error occurred');
       }

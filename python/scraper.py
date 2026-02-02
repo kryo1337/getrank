@@ -16,13 +16,13 @@ def get_player_stats(handle: str):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             resp = requests.get(
-                url, headers=headers, impersonate="chrome124", timeout=20
+                url, headers=headers, impersonate="chrome124", timeout=10
             )
             if resp.status_code == 403 or resp.status_code == 429:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(1 * (attempt + 1))
                 continue
 
             if resp.status_code == 404:
@@ -64,9 +64,9 @@ def get_player_stats(handle: str):
                 "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
             }
         except Exception as e:
-            if attempt == 4:
+            if attempt == 2:
                 return {"error": "Request failed"}
-            time.sleep(2)
+            time.sleep(1)
 
     return {"error": "Request failed after retries"}
 
@@ -140,9 +140,9 @@ def get_leaderboard(region, page, act_id):
                 return {"items": items}
 
             if attempt == 2:
-                sys.stderr.write(
-                    f"HTML Parsing Failed. Title: {re.search(r'<title>(.*?)</title>', html).group(1) if '<title>' in html else 'No Title'}\n"
-                )
+                title_match = re.search(r"<title>(.*?)</title>", html)
+                title = title_match.group(1) if title_match else "No Title"
+                sys.stderr.write(f"HTML Parsing Failed. Title: {title}\n")
                 return {"error": "Could not parse leaderboard data"}
 
         except Exception as e:

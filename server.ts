@@ -3,7 +3,11 @@ import { handler } from "./api/leaderboard-lookup";
 import * as path from "path";
 import { initScraper } from "./src/utils/scraper";
 
-initScraper().catch(e => console.error("Failed to init scraper:", e));
+try {
+  await initScraper();
+} catch (e) {
+  console.error("Failed to init scraper:", e);
+}
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://tracker.gg;",
@@ -20,7 +24,6 @@ function addHeaders(response: Response): Response {
   return response;
 }
 
-// Bun server
 const server = serve({
   port: 3000,
   async fetch(req) {
@@ -29,7 +32,6 @@ const server = serve({
 
     const clientIP = server.requestIP(req)?.address || "unknown";
 
-    // API Routes
     if (pathname === "/api/leaderboard-lookup") {
       try {
         const response = await handler(req, clientIP);
@@ -40,13 +42,11 @@ const server = serve({
       }
     }
 
-    // Serve static frontend files (after build)
     const distDir = path.resolve("dist");
 
     let requestedPath = path.join(distDir, url.pathname === "/" ? "index.html" : url.pathname);
     requestedPath = path.resolve(requestedPath);
 
-    // Security Check: Ensure path is within distDir
     if (!requestedPath.startsWith(distDir)) {
       return addHeaders(new Response("403 Forbidden", { status: 403 }));
     }
@@ -56,7 +56,6 @@ const server = serve({
       return addHeaders(new Response(file));
     }
 
-    // Fallback to index.html for client-side routing
     const index = Bun.file(path.join(distDir, "index.html"));
     if (await index.exists()) {
       return addHeaders(new Response(index));

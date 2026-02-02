@@ -24,11 +24,13 @@ function App() {
 
       const fullUrl = `${apiUrl}/api/leaderboard-lookup`;
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
       const response = await fetch(fullUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ ranks, region }),
         signal: controller.signal,
       });
@@ -40,38 +42,8 @@ function App() {
       }
 
       const data: LookupResponse = await response.json();
+      processResponse(data);
 
-      if (data.success) {
-        const successRows = data.data;
-        const errorRows = data.errors.map(err => ({
-          rank_input: err.rank_input,
-          riot_id: 'Unknown',
-          current_rank: '-',
-          kd: '-',
-          wr: '-',
-          games_played: 0,
-          wins: 0,
-          tracker_url: '#',
-          cached: false,
-          error: err.error
-        }));
-
-        const allResults = [...successRows, ...errorRows].sort((a, b) => {
-          const aNum = Number(a.rank_input);
-          const bNum = Number(b.rank_input);
-
-          if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
-          if (!isNaN(aNum) && isNaN(bNum)) return -1;
-          if (isNaN(aNum) && !isNaN(bNum)) return 1;
-
-          return String(a.rank_input).localeCompare(String(b.rank_input));
-        });
-
-        setResults(allResults);
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setError((data as any).error || 'Failed to fetch data');
-      }
     } catch (err) {
       clearTimeout(timeoutId);
       console.error(err);
@@ -84,6 +56,39 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  function processResponse(data: LookupResponse) {
+    if (data.success) {
+      const successRows = data.data;
+      const errorRows = data.errors.map(err => ({
+        rank_input: err.rank_input,
+        riot_id: 'Unknown',
+        current_rank: '-',
+        kd: '-',
+        wr: '-',
+        games_played: 0,
+        wins: 0,
+        tracker_url: '#',
+        cached: false,
+        error: err.error
+      }));
+
+      const allResults = [...successRows, ...errorRows].sort((a, b) => {
+        const aNum = Number(a.rank_input);
+        const bNum = Number(b.rank_input);
+
+        if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+        if (!isNaN(aNum) && isNaN(bNum)) return -1;
+        if (isNaN(aNum) && !isNaN(bNum)) return 1;
+
+        return String(a.rank_input).localeCompare(String(b.rank_input));
+      });
+
+      setResults(allResults);
+    } else {
+      setError((data as any).error || 'Failed to fetch data');
+    }
+  }
 
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col gap-6 max-w-7xl mx-auto">

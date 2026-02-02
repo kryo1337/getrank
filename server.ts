@@ -1,20 +1,14 @@
 import { serve } from "bun";
-import { handler } from "./api/leaderboard-lookup";
+import { handler as lookupHandler } from "./api/leaderboard-lookup";
 import * as path from "path";
-import { initScraper } from "./src/utils/scraper";
-
-try {
-  await initScraper();
-} catch (e) {
-  console.error("Failed to init scraper:", e);
-}
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://tracker.gg;",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://tracker.gg; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+  "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()"
 };
 
 function addHeaders(response: Response): Response {
@@ -34,7 +28,7 @@ const server = serve({
 
     if (pathname === "/api/leaderboard-lookup") {
       try {
-        const response = await handler(req, clientIP);
+        const response = await lookupHandler(req, clientIP);
         return addHeaders(response);
       } catch (e) {
         console.error("Handler error:", e);

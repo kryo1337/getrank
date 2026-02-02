@@ -5,6 +5,17 @@ interface ResultsTableProps {
   results: PlayerStats[];
 }
 
+function isValidTrackerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'tracker.gg' &&
+           parsed.protocol === 'https:' &&
+           parsed.pathname.startsWith('/valorant/profile/');
+  } catch {
+    return false;
+  }
+}
+
 const getRankColorClasses = (rankStr: string) => {
   const rank = rankStr.toLowerCase();
   
@@ -62,16 +73,16 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
                    <span className="text-xs text-tui-fg-dim uppercase block">Rank / Input</span>
                    <span className="font-bold text-tui-fg">{sanitize(player.rank_input)}</span>
                  </div>
-                 {!isError && (
-                    <a
-                      href={player.tracker_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-tui-blue border border-tui-blue px-3 py-2 rounded uppercase hover:bg-tui-blue hover:text-white transition-colors"
-                    >
-                      View Profile
-                    </a>
-                 )}
+                  {!isError && isValidTrackerUrl(player.tracker_url) && (
+                     <a
+                       href={player.tracker_url}
+                       target="_blank"
+                       rel="noreferrer"
+                       className="text-xs text-tui-blue border border-tui-blue px-3 py-2 rounded uppercase hover:bg-tui-blue hover:text-white transition-colors"
+                     >
+                       View Profile
+                     </a>
+                  )}
                </div>
 
                {isError ? (
@@ -157,14 +168,18 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
                     ) : (
                       <>
                         <td className="p-3 font-bold text-tui-fg whitespace-nowrap">
-                          <a 
-                            href={player.tracker_url} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="hover:text-tui-blue hover:underline decoration-1 underline-offset-4"
-                          >
-                            {sanitize(player.riot_id)}
-                          </a>
+                          {isValidTrackerUrl(player.tracker_url) ? (
+                            <a 
+                              href={player.tracker_url} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="hover:text-tui-blue hover:underline decoration-1 underline-offset-4"
+                            >
+                              {sanitize(player.riot_id)}
+                            </a>
+                          ) : (
+                            <span>{sanitize(player.riot_id)}</span>
+                          )}
                         </td>
                       <td className="p-3 whitespace-nowrap">
                         <span className={`font-bold uppercase ${getRankColorClasses(player.current_rank)}`}>
@@ -179,14 +194,18 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results }) => {
                       </td>
                       <td className="p-3 text-tui-fg-dim whitespace-nowrap">{player.games_played}</td>
                       <td className="p-3 text-right whitespace-nowrap">
-                        <a
-                          href={player.tracker_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-tui-blue hover:text-white hover:bg-tui-blue px-2 py-1 transition-colors"
-                        >
-                          [ VIEW ]
-                        </a>
+                        {isValidTrackerUrl(player.tracker_url) ? (
+                          <a
+                            href={player.tracker_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-tui-blue hover:text-white hover:bg-tui-blue px-2 py-1 transition-colors"
+                          >
+                            [ VIEW ]
+                          </a>
+                        ) : (
+                          <span className="text-xs text-tui-fg-dim">N/A</span>
+                        )}
                       </td>
                     </>
                   )}

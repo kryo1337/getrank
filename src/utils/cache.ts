@@ -12,26 +12,24 @@ export interface CacheStore {
   set<T>(key: string, value: T): Promise<void>;
   has(key: string): Promise<boolean>;
   destroy(): void;
-  getStats?(): any;
+  getStats?(): Record<string, unknown>;
 }
 
 export class InMemoryCache implements CacheStore {
-  private cache: Map<string, CacheEntry<any>>;
+  private cache: Map<string, CacheEntry<unknown>>;
   private ttl: number;
   private maxSize: number;
   private cleanupInterval: ReturnType<typeof setInterval>;
 
-  constructor(ttlMs: number = 21600000, maxSize: number = 10000) { // Default 6 hours, 10k items
+  constructor(ttlMs: number = 21600000, maxSize: number = 10000) {
     this.cache = new Map();
     this.ttl = ttlMs;
     this.maxSize = maxSize;
     
-    // Periodic cleanup every 30 minutes
     this.cleanupInterval = setInterval(() => this.cleanup(), 30 * 60 * 1000);
   }
 
   async set<T>(key: string, value: T): Promise<void> {
-    // LRU-like eviction if full
     if (this.cache.size >= this.maxSize) {
       const firstKey = this.cache.keys().next().value;
       if (firstKey) this.cache.delete(firstKey);
@@ -53,11 +51,11 @@ export class InMemoryCache implements CacheStore {
       return null;
     }
     
-    return entry.data;
+    return entry.data as T;
   }
 
   async has(key: string): Promise<boolean> {
-    return (await this.get(key)) !== null;
+    return (await this.get<unknown>(key)) !== null;
   }
 
   cleanup(): void {
@@ -93,7 +91,7 @@ export class RedisCache implements CacheStore {
     this.client = new Redis(redisUrl);
     this.ttlSeconds = Math.floor(ttlMs / 1000);
     
-    this.client.on('error', (err: any) => {
+    this.client.on('error', (err: Error) => {
       console.error('Redis Error:', err);
     });
   }
@@ -125,10 +123,8 @@ export class RedisCache implements CacheStore {
 
 const createCache = (): CacheStore => {
   if (process.env.REDIS_URL) {
-    console.log('Using Redis Cache');
     return new RedisCache(process.env.REDIS_URL);
   }
-  console.log('Using In-Memory Cache');
   return new InMemoryCache();
 };
 

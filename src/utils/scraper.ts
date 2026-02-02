@@ -1,13 +1,4 @@
 import type { PlayerStats, Region } from '../types/index.js';
-import puppeteer from 'puppeteer-extra';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { Cluster } from 'puppeteer-cluster';
-
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-puppeteer.use(StealthPlugin());
 
 const ACT_ID = process.env.VALORANT_ACT_ID || '4c4b8cff-43eb-13d3-8f14-96b783c90cd2';
 
@@ -20,85 +11,41 @@ export const REGION_MAP: Record<Region, string> = {
   'latam': 'latam'
 };
 
-let clusterPromise: Promise<Cluster> | null = null;
-
-async function getCluster(): Promise<Cluster> {
-  if (clusterPromise) return clusterPromise;
-
-  clusterPromise = (async () => {
-    try {
-      const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_CONTEXT,
-        maxConcurrency: 5,
-        puppeteer: puppeteer,
-        puppeteerOptions: {
-          headless: true,
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--window-size=1920,1080',
-            '--ignore-certificate-errors'
-          ]
-        }
-      });
-      console.log('[SCRAPER] Cluster launched successfully');
-      return cluster;
-    } catch (e) {
-      console.error('[SCRAPER] Failed to launch cluster:', e);
-      clusterPromise = null;
-      throw e;
-    }
-  })();
-
-  return clusterPromise;
+function validateRiotId(riotId: string): boolean {
+  const riotIdPattern = /^.+#.+$/;
+  if (!riotIdPattern.test(riotId)) {
+    return false;
+  }
+  const [name, tag] = riotId.split('#');
+  if (name.length < 3 || name.length > 20) {
+    return false;
+  }
+  if (tag.length < 3 || tag.length > 5) {
+    return false;
+  }
+  if (riotId.length > 100) {
+    return false;
+  }
+  return true;
 }
 
-export async function initScraper() {
-  const cluster = await getCluster();
-  console.log('[SCRAPER] Warming up browser...');
-  
-  try {
-    await cluster.execute('https://tracker.gg/valorant', async ({ page, data: url }) => {
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        if (['image', 'media', 'font'].includes(req.resourceType())) req.abort();
-        else req.continue();
-      });
-      
-      try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        console.log('[SCRAPER] Browser warmup complete');
-      } catch (e) {
-        console.warn('[SCRAPER] Warmup navigation failed (non-fatal):', e);
-      }
-    });
-  } catch (e) {
-    console.error('[SCRAPER] Warmup failed:', e);
-  }
+function validateActId(actId: string): boolean {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(actId);
 }
 
-const gracefulShutdown = async () => {
-  if (clusterPromise) {
-    const cluster = await clusterPromise;
-    await cluster.close();
-    clusterPromise = null;
-  }
-  process.exit(0);
-};
+interface LeaderboardItem {
+  rank: number;
+  owner: {
+    metadata?: {
+      platformUserHandle?: string;
+      platformUserIdentifier?: string;
+    };
+    id?: string;
+  };
+}
 
-process.on('SIGINT', gracefulShutdown);
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGUSR2', gracefulShutdown);
-
-
-async function getLeaderboardViaPython(region: string, page: number): Promise<any[] | null> {
+async function getLeaderboardViaPython(region: string, page: number): Promise<LeaderboardItem[] | null> {
   try {
     const proc = Bun.spawn(["python3", "python/scraper.py", "leaderboard", region, page.toString(), ACT_ID], {
       cwd: process.cwd(),
@@ -109,13 +56,13 @@ async function getLeaderboardViaPython(region: string, page: number): Promise<an
     const exitCode = await proc.exited;
 
     if (exitCode !== 0) {
-      console.error(`[PYTHON SCRAPER] Leaderboard process failed with exit code ${exitCode}`);
+      console.error(`[LEADERBOARD] Process failed with exit code ${exitCode}`);
       return null;
     }
 
     const data = JSON.parse(output.trim());
     if (data && data.items) {
-      console.log(`[PYTHON SCRAPER] Leaderboard success for page ${page}`);
+      console.log(`[LEADERBOARD] Success for page ${page}`);
       return data.items.map((item: { rank: number; riotId: string }) => ({
         rank: item.rank,
         owner: {
@@ -127,19 +74,19 @@ async function getLeaderboardViaPython(region: string, page: number): Promise<an
     }
     
     if (data && data.error) {
-      console.warn(`[PYTHON SCRAPER] Leaderboard error: ${data.error}`);
+      console.warn(`[LEADERBOARD] Error: ${data.error}`);
     }
     
     return null;
   } catch (e) {
-    console.error(`[PYTHON SCRAPER] Leaderboard failed:`, e);
+    console.error(`[LEADERBOARD] Failed:`, e);
     return null;
   }
 }
 
-export async function getLeaderboardPage(page: number, region: Region): Promise<any[] | null> {
+export async function getLeaderboardPage(page: number, region: Region): Promise<LeaderboardItem[] | null> {
   const regionParam = REGION_MAP[region];
-  console.log(`[SCRAPER] Fetching leaderboard page ${page} for ${region} via Python...`);
+  console.log(`[LEADERBOARD] Fetching page ${page} for ${region}...`);
   return await getLeaderboardViaPython(regionParam, page);
 }
 
@@ -148,7 +95,7 @@ export async function getPlayerByRank(rank: number, region: Region): Promise<{ r
   const items = await getLeaderboardPage(page, region);
 
   if (items) {
-    const playerItem = items.find((item: any) => item.rank === rank);
+    const playerItem = items.find((item) => item.rank === rank);
     if (playerItem) {
       const riotId = playerItem.owner?.metadata?.platformUserHandle ||
         playerItem.owner?.metadata?.platformUserIdentifier ||
@@ -161,7 +108,7 @@ export async function getPlayerByRank(rank: number, region: Region): Promise<{ r
 
 async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerStats> | null> {
   try {
-    const proc = Bun.spawn(["python3", "python/scraper.py", "--", riotId], {
+    const proc = Bun.spawn(["python3", "python/scraper.py", "profile", riotId], {
       cwd: process.cwd(),
       stderr: "inherit"
     });
@@ -170,7 +117,7 @@ async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerSt
     const exitCode = await proc.exited;
 
     if (exitCode !== 0) {
-      console.error(`[PYTHON SCRAPER] Process failed for ${riotId} with exit code ${exitCode}`);
+      console.error(`[STATS] Process failed for ${riotId} with exit code ${exitCode}`);
       return null;
     }
 
@@ -181,26 +128,33 @@ async function getPlayerStatsViaPython(riotId: string): Promise<Partial<PlayerSt
     }
 
     if (data && !data.error) {
-      console.log(`[PYTHON SCRAPER] Success for ${riotId}`);
+      console.log(`[STATS] Success for ${riotId}`);
       return data;
     }
     return null;
   } catch (e) {
-    console.error(`[PYTHON SCRAPER] Failed for ${riotId}:`, e);
+    console.error(`[STATS] Failed for ${riotId}:`, e);
     return null;
   }
 }
 
 export async function getPlayerStats(riotId: string): Promise<Partial<PlayerStats> | null> {
+  if (!validateRiotId(riotId)) {
+    return { error: 'Invalid Riot ID format' };
+  }
+
+  if (!validateActId(ACT_ID)) {
+    return { error: 'Invalid Act ID configuration' };
+  }
+  
   const pythonStats = await getPlayerStatsViaPython(riotId);
   
   if (pythonStats) {
     if (pythonStats.error) {
-      console.warn(`[PYTHON SCRAPER] Returned error for ${riotId}: ${pythonStats.error}`);
+      console.warn(`[STATS] Returned error for ${riotId}: ${pythonStats.error}`);
     }
     return pythonStats;
   }
   
   return { error: 'Scraping failed' };
 }
-

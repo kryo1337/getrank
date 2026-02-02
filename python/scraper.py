@@ -1,11 +1,53 @@
 import sys
 import json
-import time
 import urllib.parse
 import re
+import argparse
+from typing import Literal
 from curl_cffi import requests
 
 API_BASE_URL = "https://api.tracker.gg/api/v2/valorant/standard/profile/riot/"
+
+AllowedRegion = Literal["na", "eu", "ap", "kr", "br", "latam"]
+ALLOWED_REGIONS: tuple[AllowedRegion, ...] = ("na", "eu", "ap", "kr", "br", "latam")
+
+
+def validate_region(region: str) -> AllowedRegion:
+    region = region.lower().strip()
+    if region not in ALLOWED_REGIONS:
+        raise ValueError(f"Invalid region: {region}")
+    return region
+
+
+def validate_act_id(act_id: str) -> str:
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    )
+    if not uuid_pattern.match(act_id):
+        raise ValueError(f"Invalid act_id format")
+    return act_id
+
+
+def validate_handle(handle: str) -> bool:
+    if "#" not in handle:
+        return False
+
+    parts = handle.split("#")
+    if len(parts) != 2:
+        return False
+
+    name, tag = parts
+
+    if len(name) < 3 or len(name) > 20:
+        return False
+
+    if len(tag) < 3 or len(tag) > 5:
+        return False
+
+    if len(handle) > 100:
+        return False
+
+    return True
 
 
 def get_player_stats(handle: str):
@@ -17,63 +59,64 @@ def get_player_stats(handle: str):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
-    for attempt in range(3):
-        try:
-            resp = requests.get(
-                url, headers=headers, impersonate="chrome124", timeout=10
+    try:
+        resp = requests.get(url, headers=headers, impersonate="chrome124", timeout=10)
+
+        if resp.status_code == 404:
+            return {"error": "Player not found"}
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}"}
+
+        data = resp.json().get("data", {})
+        if not data:
+            return {"error": "Private Profile or No Data"}
+
+        segments = data.get("segments", [])
+
+        comp = next((s for s in segments if s.get("type") == "season"), None)
+        if not comp:
+            comp = next((s for s in segments if s.get("stats", {}).get("rank")), None)
+
+        if not comp:
+            return {"error": "No competitive data found"}
+
+        stats = comp.get("stats", {})
+
+        rank = "Unknown"
+        if stats.get("rank"):
+            meta = stats["rank"].get("metadata", {})
+            rank = (
+                f"{meta.get('tierName', 'Unknown')} {stats['rank'].get('value', 0)}RR"
             )
-            if resp.status_code == 403 or resp.status_code == 429:
-                time.sleep(1 * (attempt + 1))
-                continue
+        elif stats.get("tier"):
+            rank = stats["tier"].get("displayValue", "Unknown")
 
-            if resp.status_code == 404:
-                return {"error": "Player not found"}
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-
-            data = resp.json().get("data", {})
-            if not data:
-                return {"error": "Private Profile or No Data"}
-
-            segments = data.get("segments", [])
-
-            comp = next((s for s in segments if s.get("type") == "season"), None)
-            if not comp:
-                comp = next(
-                    (s for s in segments if s.get("stats", {}).get("rank")), None
-                )
-
-            if not comp:
-                return {"error": "No competitive data found"}
-
-            stats = comp.get("stats", {})
-
-            rank = "Unknown"
-            if stats.get("rank"):
-                meta = stats["rank"].get("metadata", {})
-                rank = f"{meta.get('tierName', 'Unknown')} {stats['rank'].get('value', 0)}RR"
-            elif stats.get("tier"):
-                rank = stats["tier"].get("displayValue", "Unknown")
-
-            return {
-                "riot_id": handle,
-                "current_rank": rank,
-                "kd": f"{(stats.get('kDRatio') or {}).get('value', 0):.2f}",
-                "wr": f"{(stats.get('matchesWinPct') or {}).get('value', 0):.1f}%",
-                "wins": int((stats.get("matchesWon") or {}).get("value", 0)),
-                "games_played": int((stats.get("matchesPlayed") or {}).get("value", 0)),
-                "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
-            }
-        except Exception as e:
-            if attempt == 2:
-                return {"error": "Request failed"}
-            time.sleep(1)
-
-    return {"error": "Request failed after retries"}
+        return {
+            "riot_id": handle,
+            "current_rank": rank,
+            "kd": f"{(stats.get('kDRatio') or {}).get('value', 0):.2f}",
+            "wr": f"{(stats.get('matchesWinPct') or {}).get('value', 0):.1f}%",
+            "wins": int((stats.get("matchesWon") or {}).get("value", 0)),
+            "games_played": int((stats.get("matchesPlayed") or {}).get("value", 0)),
+            "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
+        }
+    except Exception:
+        return {"error": "Request failed"}
 
 
-def get_leaderboard(region, page, act_id):
-    url = f"https://tracker.gg/valorant/leaderboards/ranked/all/default?platform=pc&region={region}&act={act_id}&page={page}"
+def get_leaderboard(region: str, page: int, act_id: str):
+    validated_region = validate_region(region)
+    validated_act_id = validate_act_id(act_id)
+
+    if not isinstance(page, int) or page < 1 or page > 10000:
+        return {"error": "Invalid page number"}
+
+    base_url = "https://tracker.gg/valorant/leaderboards/ranked/all/default"
+    url = f"{base_url}?platform=pc&region={validated_region}&act={validated_act_id}&page={page}"
+
+    if not url.startswith("https://tracker.gg/valorant/leaderboards/"):
+        return {"error": "Invalid URL constructed"}
+
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
@@ -81,107 +124,108 @@ def get_leaderboard(region, page, act_id):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
-    for attempt in range(3):
-        try:
-            resp = requests.get(
-                url, headers=headers, impersonate="chrome120", timeout=15
-            )
-            if resp.status_code == 403:
-                time.sleep(1 + attempt)
-                continue
+    try:
+        resp = requests.get(url, headers=headers, impersonate="chrome120", timeout=15)
 
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+        if resp.status_code != 200:
+            return {"error": "Failed to fetch leaderboard"}
 
-            html = resp.text
+        html = resp.text
 
-            if "Just a moment" in html or "Security Challenge" in html:
-                time.sleep(2 + attempt)
-                continue
+        initial_state_start = html.find("window.__INITIAL_STATE__")
+        if initial_state_start != -1:
+            try:
+                json_start = html.find("{", initial_state_start)
+                if json_start != -1:
+                    data, _ = json.JSONDecoder().raw_decode(html[json_start:])
 
-            initial_state_start = html.find("window.__INITIAL_STATE__")
-            if initial_state_start != -1:
-                try:
-                    json_start = html.find("{", initial_state_start)
-                    if json_start != -1:
-                        data, _ = json.JSONDecoder().raw_decode(html[json_start:])
+                    leaderboards = data.get("stats", {}).get("standardLeaderboards", [])
+                    if leaderboards:
+                        raw_items = leaderboards[0].get("items", [])
+                        simplified_items = []
+                        for item in raw_items:
+                            rank = item.get("rank")
+                            owner = item.get("owner", {})
+                            metadata = owner.get("metadata", {})
+                            riot_id = (
+                                metadata.get("platformUserHandle")
+                                or metadata.get("platformUserIdentifier")
+                                or owner.get("id")
+                            )
 
-                        leaderboards = data.get("stats", {}).get(
-                            "standardLeaderboards", []
-                        )
-                        if leaderboards:
-                            raw_items = leaderboards[0].get("items", [])
-                            simplified_items = []
-                            for item in raw_items:
-                                rank = item.get("rank")
-                                owner = item.get("owner", {})
-                                metadata = owner.get("metadata", {})
-                                riot_id = (
-                                    metadata.get("platformUserHandle")
-                                    or metadata.get("platformUserIdentifier")
-                                    or owner.get("id")
+                            if rank and riot_id:
+                                simplified_items.append(
+                                    {"rank": rank, "riotId": riot_id}
                                 )
+                        return {"items": simplified_items}
+            except Exception:
+                pass
 
-                                if rank and riot_id:
-                                    simplified_items.append(
-                                        {"rank": rank, "riotId": riot_id}
-                                    )
-                            return {"items": simplified_items}
-                except Exception as e:
-                    sys.stderr.write(f"JSON Parsing Error: {e}\n")
-                    pass
+        items = []
+        rows = re.split(r"<tr\s*", html)
 
-            items = []
-            rows = re.split(r"<tr\s*", html)
+        current_rank_base = (int(page) - 1) * 100
 
-            current_rank_base = (int(page) - 1) * 100
+        for i, row in enumerate(rows[1:]):
+            link_match = re.search(r'/valorant/profile/riot/([^/"]+)/overview', row)
+            if link_match:
+                riot_id = urllib.parse.unquote(link_match.group(1))
 
-            for i, row in enumerate(rows[1:]):
-                link_match = re.search(r'/valorant/profile/riot/([^/"]+)/overview', row)
-                if link_match:
-                    riot_id = urllib.parse.unquote(link_match.group(1))
+                rank = 0
+                rank_match = re.search(r"<td[^>]*>.*?(\d+).*?</td>", row, re.DOTALL)
+                if rank_match:
+                    rank = int(rank_match.group(1))
+                else:
+                    rank = current_rank_base + i + 1
 
-                    rank = 0
-                    rank_match = re.search(r"<td[^>]*>.*?(\d+).*?</td>", row, re.DOTALL)
-                    if rank_match:
-                        rank = int(rank_match.group(1))
-                    else:
-                        rank = current_rank_base + i + 1
+                items.append({"rank": rank, "riotId": riot_id})
 
-                    items.append({"rank": rank, "riotId": riot_id})
+        if len(items) > 0:
+            return {"items": items}
 
-            if len(items) > 0:
-                return {"items": items}
+        return {"error": "Could not parse leaderboard data"}
 
-            if attempt == 2:
-                title_match = re.search(r"<title>(.*?)</title>", html)
-                title = title_match.group(1) if title_match else "No Title"
-                sys.stderr.write(f"HTML Parsing Failed. Title: {title}\n")
-                sys.stderr.write(f"HTML Snippet: {html[:1000]}...\n")
-                sys.stderr.write(f"HTML Search 'INITIAL': {html.find('INITIAL')}\n")
-                return {"error": "Could not parse leaderboard data"}
-
-        except Exception as e:
-            if attempt == 2:
-                return {"error": f"Request failed: {str(e)}"}
-            time.sleep(1)
-
-    return {"error": "Request failed after retries"}
+    except Exception as e:
+        return {"error": f"Request failed: {str(e)}"}
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--"]
-    if not args:
-        print(json.dumps({"error": "No arguments provided"}))
+    parser = argparse.ArgumentParser(description="Valorant player stats scraper")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    profile_parser = subparsers.add_parser("profile", help="Get player stats")
+    profile_parser.add_argument(
+        "handle", type=str, help="Player Riot ID (e.g., name#tag)"
+    )
+
+    leaderboard_parser = subparsers.add_parser(
+        "leaderboard", help="Get leaderboard data"
+    )
+    leaderboard_parser.add_argument("region", type=str, help="Server region")
+    leaderboard_parser.add_argument("page", type=int, help="Page number")
+    leaderboard_parser.add_argument("act_id", type=str, help="Valorant Act ID")
+
+    args = parser.parse_args()
+
+    try:
+        if args.command == "profile":
+            if not validate_handle(args.handle):
+                print(json.dumps({"error": "Invalid Riot ID format"}))
+                sys.exit(1)
+            result = get_player_stats(args.handle)
+            print(json.dumps(result))
+
+        elif args.command == "leaderboard":
+            if args.page < 1 or args.page > 10000:
+                print(json.dumps({"error": "Page number out of range (1-10000)"}))
+                sys.exit(1)
+
+            result = get_leaderboard(args.region, args.page, args.act_id)
+            print(json.dumps(result))
+
+    except ValueError as e:
+        print(json.dumps({"error": f"Validation error: {str(e)}"}))
         sys.exit(1)
-
-    command = args[0]
-
-    if command == "profile" and len(args) >= 2:
-        print(json.dumps(get_player_stats(args[1])))
-    elif command == "leaderboard" and len(args) >= 4:
-        print(json.dumps(get_leaderboard(args[1], args[2], args[3])))
-    elif len(args) == 1 and command not in ["profile", "leaderboard"]:
-        print(json.dumps(get_player_stats(command)))
-    else:
-        print(json.dumps({"error": "Invalid arguments"}))
+    except Exception as e:
+        print(json.dumps({"error": "Internal error"}))
+        sys.exit(1)

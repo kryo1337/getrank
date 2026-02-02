@@ -7,3 +7,7 @@ dist
 README.md
 AGENTS.md
 DEPLOY.md
+bun.lockb
+*.log
+.vscode
+.idea

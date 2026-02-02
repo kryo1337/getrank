@@ -1,4 +1,6 @@
-import Redis from 'ioredis';
+import RedisPkg from 'ioredis';
+// @ts-ignore
+const Redis = RedisPkg.default || RedisPkg;
 
 interface CacheEntry<T> {
   data: T;
@@ -83,14 +85,15 @@ export class InMemoryCache implements CacheStore {
 }
 
 export class RedisCache implements CacheStore {
-  private client: Redis;
+  private client: any;
   private ttlSeconds: number;
 
   constructor(redisUrl: string, ttlMs: number = 21600000) {
+    // @ts-ignore
     this.client = new Redis(redisUrl);
     this.ttlSeconds = Math.floor(ttlMs / 1000);
     
-    this.client.on('error', (err) => {
+    this.client.on('error', (err: any) => {
       console.error('Redis Error:', err);
     });
   }

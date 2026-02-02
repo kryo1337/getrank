@@ -2,6 +2,7 @@ import sys
 import json
 import time
 import urllib.parse
+import re
 from curl_cffi import requests
 
 API_BASE_URL = "https://api.tracker.gg/api/v2/valorant/standard/profile/riot/"
@@ -98,18 +99,36 @@ def get_leaderboard(region, page, act_id):
                 time.sleep(2 + attempt)
                 continue
 
-            import re
-
-            match = re.search(
-                r"window\.__INITIAL_STATE__\s*=\s*({.+?});", html, re.DOTALL
-            )
-            if match:
+            initial_state_start = html.find("window.__INITIAL_STATE__")
+            if initial_state_start != -1:
                 try:
-                    data = json.loads(match.group(1))
-                    leaderboards = data.get("stats", {}).get("standardLeaderboards", [])
-                    if leaderboards:
-                        return {"items": leaderboards[0].get("items", [])}
-                except:
+                    json_start = html.find("{", initial_state_start)
+                    if json_start != -1:
+                        data, _ = json.JSONDecoder().raw_decode(html[json_start:])
+
+                        leaderboards = data.get("stats", {}).get(
+                            "standardLeaderboards", []
+                        )
+                        if leaderboards:
+                            raw_items = leaderboards[0].get("items", [])
+                            simplified_items = []
+                            for item in raw_items:
+                                rank = item.get("rank")
+                                owner = item.get("owner", {})
+                                metadata = owner.get("metadata", {})
+                                riot_id = (
+                                    metadata.get("platformUserHandle")
+                                    or metadata.get("platformUserIdentifier")
+                                    or owner.get("id")
+                                )
+
+                                if rank and riot_id:
+                                    simplified_items.append(
+                                        {"rank": rank, "riotId": riot_id}
+                                    )
+                            return {"items": simplified_items}
+                except Exception as e:
+                    sys.stderr.write(f"JSON Parsing Error: {e}\n")
                     pass
 
             items = []
@@ -129,12 +148,7 @@ def get_leaderboard(region, page, act_id):
                     else:
                         rank = current_rank_base + i + 1
 
-                    items.append(
-                        {
-                            "rank": rank,
-                            "owner": {"metadata": {"platformUserHandle": riot_id}},
-                        }
-                    )
+                    items.append({"rank": rank, "riotId": riot_id})
 
             if len(items) > 0:
                 return {"items": items}
@@ -143,6 +157,8 @@ def get_leaderboard(region, page, act_id):
                 title_match = re.search(r"<title>(.*?)</title>", html)
                 title = title_match.group(1) if title_match else "No Title"
                 sys.stderr.write(f"HTML Parsing Failed. Title: {title}\n")
+                sys.stderr.write(f"HTML Snippet: {html[:1000]}...\n")
+                sys.stderr.write(f"HTML Search 'INITIAL': {html.find('INITIAL')}\n")
                 return {"error": "Could not parse leaderboard data"}
 
         except Exception as e:

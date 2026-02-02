@@ -27,7 +27,22 @@ export async function handler(request: Request, clientIP?: string) {
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
   }
 
-  const ip = clientIP || request.headers.get("x-forwarded-for") || "unknown";
+  let ip = clientIP || "unknown";
+  const xEnvoy = request.headers.get("x-envoy-external-address");
+  const xRealIp = request.headers.get("x-real-ip");
+  const xForwardedFor = request.headers.get("x-forwarded-for");
+
+  if (xEnvoy) {
+    ip = xEnvoy;
+  } else if (xRealIp) {
+    ip = xRealIp;
+  } else if (xForwardedFor) {
+    const ips = xForwardedFor.split(',').map(s => s.trim());
+    if (ips.length > 0) {
+      ip = ips[0];
+    }
+  }
+
   if (isRateLimited(ip)) {
     return new Response(JSON.stringify({ success: false, error: 'Too Many Requests' }), {
       status: 429,

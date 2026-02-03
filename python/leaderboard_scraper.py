@@ -4,7 +4,7 @@ import argparse
 import re
 import urllib.parse
 import asyncio
-from typing import Literal
+from typing import Literal, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 
@@ -13,8 +13,8 @@ AllowedRegion = Literal["na", "eu", "ap", "kr", "br", "latam"]
 ALLOWED_REGIONS: tuple[AllowedRegion, ...] = ("na", "eu", "ap", "kr", "br", "latam")
 
 _playwright = None
-_browser: Browser = None
-_context: BrowserContext = None
+_browser: Optional[Browser] = None
+_context: Optional[BrowserContext] = None
 _pending_scrapes = set()
 
 
@@ -61,6 +61,53 @@ def get_extra_headers():
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
     }
+
+
+async def reset_browser():
+    global _playwright, _browser, _context
+
+    try:
+        if _context:
+            await _context.close()
+    except Exception:
+        pass
+
+    _context = None
+
+    try:
+        if _browser:
+            await _browser.close()
+    except Exception:
+        pass
+
+    _browser = None
+
+    try:
+        if _playwright:
+            await _playwright.stop()
+    except Exception:
+        pass
+
+    _playwright = None
+
+    print("[LEADERBOARD] Browser reset complete", file=sys.stderr)
+
+
+async def check_browser_health() -> bool:
+    try:
+        if _playwright is None or _browser is None or _context is None:
+            return False
+
+        if not _browser.is_connected():
+            return False
+
+        test_page = await _context.new_page()
+        await test_page.goto("about:blank", timeout=5000)
+        await test_page.close()
+        return True
+    except Exception as e:
+        print(f"[LEADERBOARD] Browser health check failed: {e}", file=sys.stderr)
+        return False
 
 
 async def get_browser_context():
@@ -194,10 +241,19 @@ async def get_leaderboard(region: str, page_num: int, act_id: str = ACT_ID):
         print(
             f"[LEADERBOARD] Already scraping {cache_key}, skipping...", file=sys.stderr
         )
-        return {"error": "Request already in progress"}
+        return {"error": "Service temporarily unavailable"}
 
     try:
+        print(f"[LEADERBOARD] Fetching page {page_num} for {region}", file=sys.stderr)
+
         _pending_scrapes.add(cache_key)
+
+        if not await check_browser_health():
+            print(
+                "[LEADERBOARD] Browser health check failed, resetting...",
+                file=sys.stderr,
+            )
+            await reset_browser()
 
         context = await get_browser_context()
         page_obj = await context.new_page()
@@ -221,16 +277,16 @@ async def get_leaderboard(region: str, page_num: int, act_id: str = ACT_ID):
         await page_obj.close()
 
         if items and len(items) > 0:
+            print(f"[LEADERBOARD] Success: found {len(items)} players", file=sys.stderr)
             return {"items": items}
         else:
-            return {"error": "Could not parse leaderboard data"}
+            return {"error": "Service temporarily unavailable"}
 
     except Exception as e:
         print(f"[LEADERBOARD] Error: {e}", file=sys.stderr)
-        return {"error": f"Request failed: {str(e)}"}
+        return {"error": "Service temporarily unavailable"}
 
     finally:
-        cache_key = f"{region}:{page_num}"
         _pending_scrapes.discard(cache_key)
 
 
@@ -239,7 +295,27 @@ async def warmup():
     print("[LEADERBOARD] Warming up browser...", file=sys.stderr)
     try:
         await get_browser_context()
-        print("[LEADERBOARD] Browser warmed up and ready", file=sys.stderr)
+
+        if await check_browser_health():
+            print("[LEADERBOARD] Browser warmed up and ready", file=sys.stderr)
+        else:
+            print(
+                "[LEADERBOARD] Browser health check failed during warmup",
+                file=sys.stderr,
+            )
+            await reset_browser()
+            await get_browser_context()
+
+            if await check_browser_health():
+                print(
+                    "[LEADERBOARD] Browser warmed up and ready after reset",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "[LEADERBOARD] Warmup failed: Browser health check still failing",
+                    file=sys.stderr,
+                )
     except Exception as e:
         print(f"[LEADERBOARD] Warmup failed: {e}", file=sys.stderr)
 
@@ -260,8 +336,8 @@ if __name__ == "__main__":
         result = asyncio.run(get_leaderboard(args.region, args.page, args.act_id))
         print(json.dumps(result))
     except ValueError as e:
-        print(json.dumps({"error": f"Validation error: {str(e)}"}), file=sys.stderr)
+        print(f"[LEADERBOARD] Validation error: {str(e)}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(json.dumps({"error": "Internal error"}), file=sys.stderr)
+        print(f"[LEADERBOARD] Internal error: {str(e)}", file=sys.stderr)
         sys.exit(1)

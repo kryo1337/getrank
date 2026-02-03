@@ -21,6 +21,7 @@ yarn-debug.log*
 node_modules
 
 # Lock files
+bun.lock
 bun.lockb
 package-lock.json
 package-lock

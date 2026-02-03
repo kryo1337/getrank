@@ -1,4 +1,2 @@
 curl_cffi==0.14.0
-certifi
-cffi
 playwright

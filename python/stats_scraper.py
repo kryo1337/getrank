@@ -3,6 +3,7 @@ import json
 import urllib.parse
 import re
 import argparse
+import time
 from typing import Literal
 from curl_cffi import requests
 from playwright.sync_api import sync_playwright
@@ -11,6 +12,24 @@ API_BASE_URL = "https://api.tracker.gg/api/v2/valorant/standard/profile/riot/"
 
 AllowedRegion = Literal["na", "eu", "ap", "kr", "br", "latam"]
 ALLOWED_REGIONS: tuple[AllowedRegion, ...] = ("na", "eu", "ap", "kr", "br", "latam")
+
+BROWSER_CONFIGS = [
+    {
+        "impersonate": "chrome124",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "timeout": 12,
+    },
+    {
+        "impersonate": "chrome120",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "timeout": 12,
+    },
+    {
+        "impersonate": "chrome110",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        "timeout": 12,
+    },
+]
 
 
 def validate_region(region: str) -> AllowedRegion:
@@ -53,56 +72,88 @@ def validate_handle(handle: str) -> bool:
 
 def get_player_stats(handle: str):
     url = f"{API_BASE_URL}{urllib.parse.quote(handle)}"
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://tracker.gg/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    }
 
-    try:
-        resp = requests.get(url, headers=headers, impersonate="chrome124", timeout=10)
-
-        if resp.status_code == 404:
-            return {"error": "Player not found"}
-        if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}"}
-
-        data = resp.json().get("data", {})
-        if not data:
-            return {"error": "Private Profile or No Data"}
-
-        segments = data.get("segments", [])
-
-        comp = next((s for s in segments if s.get("type") == "season"), None)
-        if not comp:
-            comp = next((s for s in segments if s.get("stats", {}).get("rank")), None)
-
-        if not comp:
-            return {"error": "No competitive data found"}
-
-        stats = comp.get("stats", {})
-
-        rank = "Unknown"
-        if stats.get("rank"):
-            meta = stats["rank"].get("metadata", {})
-            rank = (
-                f"{meta.get('tierName', 'Unknown')} {stats['rank'].get('value', 0)}RR"
-            )
-        elif stats.get("tier"):
-            rank = stats["tier"].get("displayValue", "Unknown")
-
-        return {
-            "riot_id": handle,
-            "current_rank": rank,
-            "kd": f"{(stats.get('kDRatio') or {}).get('value', 0):.2f}",
-            "wr": f"{(stats.get('matchesWinPct') or {}).get('value', 0):.1f}%",
-            "wins": int((stats.get("matchesWon") or {}).get("value", 0)),
-            "games_played": int((stats.get("matchesPlayed") or {}).get("value", 0)),
-            "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
+    for attempt, browser_config in enumerate(BROWSER_CONFIGS, 1):
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://tracker.gg/",
+            "User-Agent": browser_config["user_agent"],
         }
-    except Exception:
-        return {"error": "Request failed"}
+
+        try:
+            print(
+                f"[STATS] Attempt {attempt}/{len(BROWSER_CONFIGS)}: {browser_config['impersonate']} for {handle}",
+                file=sys.stderr,
+            )
+
+            resp = requests.get(
+                url,
+                headers=headers,
+                impersonate=browser_config["impersonate"],
+                timeout=browser_config["timeout"],
+            )
+
+            if resp.status_code == 404:
+                print(f"[STATS] Player not found for {handle}", file=sys.stderr)
+                return {"error": "Service temporarily unavailable"}
+
+            if resp.status_code != 200:
+                print(
+                    f"[STATS] Attempt {attempt} failed: HTTP {resp.status_code}",
+                    file=sys.stderr,
+                )
+                if attempt < len(BROWSER_CONFIGS):
+                    time.sleep(1)
+                    continue
+                return {"error": "Service temporarily unavailable"}
+
+            data = resp.json().get("data", {})
+            if not data:
+                print(f"[STATS] No data found for {handle}", file=sys.stderr)
+                return {"error": "Service temporarily unavailable"}
+
+            segments = data.get("segments", [])
+
+            comp = next((s for s in segments if s.get("type") == "season"), None)
+            if not comp:
+                comp = next(
+                    (s for s in segments if s.get("stats", {}).get("rank")), None
+                )
+
+            if not comp:
+                print(f"[STATS] No competitive data for {handle}", file=sys.stderr)
+                return {"error": "Service temporarily unavailable"}
+
+            stats = comp.get("stats", {})
+
+            rank = "Unknown"
+            if stats.get("rank"):
+                meta = stats["rank"].get("metadata", {})
+                rank = f"{meta.get('tierName', 'Unknown')} {stats['rank'].get('value', 0)}RR"
+            elif stats.get("tier"):
+                rank = stats["tier"].get("displayValue", "Unknown")
+
+            print(f"[STATS] Success on attempt {attempt} for {handle}", file=sys.stderr)
+
+            return {
+                "riot_id": handle,
+                "current_rank": rank,
+                "kd": f"{(stats.get('kDRatio') or {}).get('value', 0):.2f}",
+                "wr": f"{(stats.get('matchesWinPct') or {}).get('value', 0):.1f}%",
+                "wins": int((stats.get("matchesWon") or {}).get("value", 0)),
+                "games_played": int((stats.get("matchesPlayed") or {}).get("value", 0)),
+                "tracker_url": f"https://tracker.gg/valorant/profile/riot/{urllib.parse.quote(handle)}/overview",
+            }
+
+        except Exception as e:
+            print(f"[STATS] Attempt {attempt} exception: {str(e)}", file=sys.stderr)
+            if attempt < len(BROWSER_CONFIGS):
+                time.sleep(1)
+                continue
+            return {"error": "Service temporarily unavailable"}
+
+    return {"error": "Service temporarily unavailable"}
 
 
 def get_leaderboard(region: str, page: int, act_id: str):
@@ -129,8 +180,8 @@ def get_leaderboard(region: str, page: int, act_id: str):
         resp = requests.get(url, headers=headers, impersonate="chrome120", timeout=15)
 
         if resp.status_code != 200:
-            print(f"[DEBUG] Status: {resp.status_code}, URL: {url}", file=sys.stderr)
-            return {"error": "Failed to fetch leaderboard"}
+            print(f"[STATS] Status: {resp.status_code}, URL: {url}", file=sys.stderr)
+            return {"error": "Service temporarily unavailable"}
 
         html = resp.text
 
@@ -185,10 +236,11 @@ def get_leaderboard(region: str, page: int, act_id: str):
         if len(items) > 0:
             return {"items": items}
 
-        return {"error": "Could not parse leaderboard data"}
+        return {"error": "Service temporarily unavailable"}
 
     except Exception as e:
-        return {"error": f"Request failed: {str(e)}"}
+        print(f"[STATS] Error: {str(e)}", file=sys.stderr)
+        return {"error": "Service temporarily unavailable"}
 
 
 if __name__ == "__main__":
@@ -212,22 +264,22 @@ if __name__ == "__main__":
     try:
         if args.command == "profile":
             if not validate_handle(args.handle):
-                print(json.dumps({"error": "Invalid Riot ID format"}))
+                print(f"[STATS] Invalid Riot ID format: {args.handle}", file=sys.stderr)
                 sys.exit(1)
             result = get_player_stats(args.handle)
             print(json.dumps(result))
 
         elif args.command == "leaderboard":
             if args.page < 1 or args.page > 10000:
-                print(json.dumps({"error": "Page number out of range (1-10000)"}))
+                print(f"[STATS] Page number out of range: {args.page}", file=sys.stderr)
                 sys.exit(1)
 
             result = get_leaderboard(args.region, args.page, args.act_id)
             print(json.dumps(result))
 
     except ValueError as e:
-        print(json.dumps({"error": f"Validation error: {str(e)}"}))
+        print(f"[STATS] Validation error: {str(e)}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(json.dumps({"error": "Internal error"}))
+        print(f"[STATS] Internal error: {str(e)}", file=sys.stderr)
         sys.exit(1)
